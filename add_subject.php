@@ -2,23 +2,33 @@
 session_start();
 include 'db.php';
 
-if (!isset($_SESSION['user_id'])) {
+if (!isset($_SESSION['user_id']) || !isset($_SESSION['school_id'])) {
     header('Location: login.php');
     exit();
 }
 
+$school_id = $_SESSION['school_id'];
 $message = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $name = $_POST['name'];
-    $sql = "INSERT INTO subject (name) VALUES ('$name')";
-    if (mysqli_query($conn, $sql)) {
-        $_SESSION['message'] = "✅ Subject added!";
+    $name = trim($_POST['name']);
+
+    if ($name === '') {
+        $message = "❌ Subject name cannot be empty.";
     } else {
-        $_SESSION['message'] = "❌ Error adding subject.";
+        $stmt = $conn->prepare("INSERT INTO subject (name, school_id) VALUES (?, ?)");
+        $stmt->bind_param("si", $name, $school_id);
+
+        if ($stmt->execute()) {
+            $_SESSION['message'] = "✅ Subject added!";
+        } else {
+            $_SESSION['message'] = "❌ Error adding subject.";
+        }
+
+        $stmt->close();
+        header("Location: " . $_SERVER['PHP_SELF']);
+        exit();
     }
-    header("Location: " . $_SERVER['PHP_SELF']);
-    exit();
 }
 
 if (isset($_SESSION['message'])) {
@@ -28,12 +38,12 @@ if (isset($_SESSION['message'])) {
 ?>
 
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Add Subject</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script>
-        // Auto-hide alert
         document.addEventListener("DOMContentLoaded", function () {
             const alertBox = document.getElementById("message-box");
             if (alertBox) {
@@ -52,7 +62,7 @@ if (isset($_SESSION['message'])) {
 
 <?php if ($message): ?>
     <div id="message-box" class="alert <?= str_starts_with($message, '✅') ? 'alert-success' : 'alert-danger' ?>">
-        <?= $message ?>
+        <?= htmlspecialchars($message) ?>
     </div>
 <?php endif; ?>
 

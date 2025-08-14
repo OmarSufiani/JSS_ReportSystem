@@ -2,74 +2,79 @@
 session_start();
 include 'db.php';
 
-$success = '';
-$error = '';
-
-// Handle deletion
+// Handle delete action
 if (isset($_GET['delete_id'])) {
-    $deleteId = intval($_GET['delete_id']);
-    $deleteSql = "DELETE FROM users WHERE id = $deleteId";
-
-    if (mysqli_query($conn, $deleteSql)) {
-        $success = "User deleted successfully.";
-    } else {
-        $error = "Error deleting user.";
-    }
+    $delete_id = intval($_GET['delete_id']);
+    mysqli_query($conn, "DELETE FROM student WHERE id = $delete_id");
+    header("Location: " . $_SERVER['PHP_SELF']);
+    exit;
 }
 
-// Fetch all users
-$sql = "SELECT * FROM users";
-$result = mysqli_query($conn, $sql);
+// Fetch students
+$result = mysqli_query($conn, "SELECT * FROM student ORDER BY id DESC");
 ?>
 
 <!DOCTYPE html>
 <html>
 <head>
-    <title>View Users</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Manage Students</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
-<body class="container py-4">
+<body class="bg-light">
 
-<a href="dashboard.php" class="btn btn-outline-primary mb-4 btn-sm">&larr; Back to Dashboard</a>
+<div class="container mt-5">
+    <h3 class="mb-4">Student List</h3>
 
-<h3 class="mb-3">All Registered Users</h3>
-
-<?php if ($success): ?>
-    <div class="alert alert-success"><?= $success ?></div>
-<?php elseif ($error): ?>
-    <div class="alert alert-danger"><?= $error ?></div>
-<?php endif; ?>
-
-<table class="table table-bordered table-striped">
-    <thead class="table-dark">
-        <tr>
-            <th>ID</th>
-            <th>First Name</th>
-            <th>Last Name</th>
-            <th>Email</th>
-            <th>Role</th>
-            <th>Created At</th>
-            <th>Action</th>
-        </tr>
-    </thead>
-    <tbody>
-        <?php while ($row = mysqli_fetch_assoc($result)): ?>
-            <tr>
-                <td><?= $row['id'] ?></td>
-                <td><?= htmlspecialchars($row['FirstName']) ?></td>
-                <td><?= htmlspecialchars($row['LastName']) ?></td>
-                <td><?= htmlspecialchars($row['email']) ?></td>
-                <td><?= $row['role'] ?></td>
-                <td><?= $row['created_at'] ?></td>
-                <td>
-                    <a href="delete_student.php?delete_id=<?= $row['id'] ?>"
-                       onclick="return confirm('Are you sure you want to delete this user?');"
-                       class="btn btn-sm btn-danger">🗑 Delete</a>
-                </td>
-            </tr>
-        <?php endwhile; ?>
-    </tbody>
-</table>
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover table-striped">
+            <thead class="table-dark">
+                <tr>
+                    <th>ID</th>
+                    <th>Adm No</th>
+                    <th>Name</th>
+                    <th>Gender</th>
+                    <th>DOB</th>
+                    <th>Guardian</th>
+                    <th>Phone</th>
+                    <th>Address</th>
+                    <th>Status</th>
+                    <th>School ID</th>
+                    <th>Class ID</th>
+                    <th>Photo</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php while ($student = mysqli_fetch_assoc($result)) { ?>
+                    <tr>
+                        <td><?= $student['id'] ?></td>
+                        <td><?= htmlspecialchars($student['admno']) ?></td>
+                        <td><?= htmlspecialchars($student['firstname'] . ' ' . $student['lastname']) ?></td>
+                        <td><?= $student['gender'] ?></td>
+                        <td><?= $student['dob'] ?></td>
+                        <td><?= htmlspecialchars($student['guardian_name']) ?></td>
+                        <td><?= htmlspecialchars($student['guardian_phone']) ?></td>
+                        <td><?= htmlspecialchars($student['address']) ?></td>
+                        <td><?= $student['status'] ?></td>
+                        <td><?= $student['school_id'] ?></td>
+                        <td><?= $student['class_id'] ?></td>
+                        <td>
+                            <?php if (!empty($student['photo'])): ?>
+                                <img src="uploads/students/<?= $student['photo'] ?>" width="50" height="50" alt="Photo">
+                            <?php else: ?>
+                                N/A
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <a href="?delete_id=<?= $student['id'] ?>" class="btn btn-sm btn-danger"
+                               onclick="return confirm('Are you sure you want to delete this student?');">Delete</a>
+                        </td>
+                    </tr>
+                <?php } ?>
+            </tbody>
+        </table>
+    </div>
+</div>
 
 </body>
 </html>

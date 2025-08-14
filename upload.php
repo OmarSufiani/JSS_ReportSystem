@@ -14,7 +14,7 @@ $allowedTypes = [
 ];
 
 $maxFileSize = 5 * 1024 * 1024; // 5MB
-$uploadDir = 'uploads/';
+$uploadDir = 'uploads/exams/';
 $message = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

@@ -13,6 +13,9 @@ $query = "SELECT * FROM users WHERE id = $user_id";
 $result = mysqli_query($conn, $query);
 $user = mysqli_fetch_assoc($result);
 
+// Fetch all schools for dropdown
+$schools = mysqli_query($conn, "SELECT id, school_name FROM school");
+
 $message = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -20,20 +23,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $last = $_POST['LastName'];
     $email = $_POST['email'];
     $role = $_POST['role'];
+    $school_id = $_POST['school_id'] ?? null;
 
     if (!empty($_POST['password'])) {
         $password = password_hash($_POST['password'], PASSWORD_BCRYPT);
-        $sql = "UPDATE users SET FirstName='$first', LastName='$last', email='$email', password='$password', role='$role' WHERE id=$user_id";
+        $sql = "UPDATE users SET FirstName=?, LastName=?, email=?, password=?, role=?, school_id=? WHERE id=?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("ssssssi", $first, $last, $email, $password, $role, $school_id, $user_id);
     } else {
-        $sql = "UPDATE users SET FirstName='$first', LastName='$last', email='$email', role='$role' WHERE id=$user_id";
+        $sql = "UPDATE users SET FirstName=?, LastName=?, email=?, role=?, school_id=? WHERE id=?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("ssssii", $first, $last, $email, $role, $school_id, $user_id);
     }
 
-    if (mysqli_query($conn, $sql)) {
+    if ($stmt->execute()) {
         $message = '<div class="alert alert-success">User details updated!</div>';
+        $stmt->close();
+
+        // Refresh user data
         $result = mysqli_query($conn, $query);
         $user = mysqli_fetch_assoc($result);
     } else {
-        $message = '<div class="alert alert-danger">Error: ' . mysqli_error($conn) . '</div>';
+        $message = '<div class="alert alert-danger">Error: ' . $stmt->error . '</div>';
     }
 }
 ?>
@@ -41,7 +52,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Edit User</title>
+     <title>Edit User</title>
+    <!-- Bootstrap 5 CDN -->
+    <meta name="viewport" content="width=device-width, initial-scale=1"> 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
@@ -71,14 +84,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <label class="form-label">New Password (leave blank to keep current)</label>
                     <input type="password" name="password" class="form-control">
                 </div>
-                <div class="mb-3">
-                    <label class="form-label">Role</label>
-                    <select name="role" class="form-select" required>
-                        <option value="user" <?= $user['role'] === 'user' ? 'selected' : '' ?>>User</option>
-                        <option value="admin" <?= $user['role'] === 'admin' ? 'selected' : '' ?>>Admin</option>
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-primary">Update Details</button>
+
+                                        <?php if ($_SESSION['role'] === 'Superadmin'): ?>
+                        <div class="mb-3">
+                            <label class="form-label">Role</label>
+                            <select name="role" class="form-select" required>
+                                <option value="user" <?= $user['role'] === 'user' ? 'selected' : '' ?>>User</option>
+                                <option value="admin" <?= $user['role'] === 'admin' ? 'selected' : '' ?>>Admin</option>
+                                <option value="superadmin" <?= $user['role'] === 'superadmin' ? 'selected' : '' ?>>SuperAdmin</option>
+                            </select>
+                        </div>
+                    <?php elseif ($_SESSION['role'] === 'admin'): ?>
+                        <div class="mb-3">
+                            <label class="form-label">Role</label>
+                            <select name="role" class="form-select" required>
+                                <option value="user" <?= $user['role'] === 'user' ? 'selected' : '' ?>>User</option>
+                                <option value="admin" <?= $user['role'] === 'admin' ? 'selected' : '' ?>>Admin</option>
+                            </select>
+                        </div>
+                    <?php else: ?>
+                        <div class="mb-3">
+                            <label class="form-label">Role</label>
+                            <input type="text" class="form-control" value="<?= htmlspecialchars($user['role']) ?>" readonly>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if ($_SESSION['role'] !== 'Superadmin'): ?>
+                        <div class="mb-3">
+                            <label class="form-label">School</label>
+                            <select name="school_id" class="form-select" required>
+                                <option value="">Select School</option>
+                                <?php
+                                mysqli_data_seek($schools, 0); // reset pointer if needed
+                                while ($school = mysqli_fetch_assoc($schools)): ?>
+                                    <option value="<?= $school['id'] ?>" <?= $user['school_id'] == $school['id'] ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($school['school_name']) ?>
+                                    </option>
+                                <?php endwhile; ?>
+                            </select>
+                        </div>
+                    <?php endif; ?>
+
+
+            <!-- submit button -->
+            <button type="submit" class="btn btn-primary">Update Details</button>
+
             </form>
         </div>
     </div>

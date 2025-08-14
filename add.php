@@ -208,80 +208,225 @@ function generateStudentReport($student_id, $term, $year, $conn) {
     elseif ($studentAvg >= 50) $overallComment = "Average";
     else $overallComment = "Put more effort";
 
-  // HTML for PDF with blue-green background
-// Watermark text style
-$watermark = "<div style='
-    position: fixed;
-    top: 40%;
-    left: 20%;
-    width: 60%;
-    text-align: center;
-    opacity: 0.08;
-    font-size: 100px;
-    color: gray;
-    transform: rotate(-30deg);
-    z-index: -1;
-'>
-    " . htmlspecialchars($school_name, ENT_QUOTES) . "
-</div>";
+    // HTML for PDF
+    $html = "<h1 style='text-align: center;'>" . htmlspecialchars($school_name, ENT_QUOTES) . "</h1>";
+    $html .= "<h2 style='text-align: center;'>STUDENT REPORT FORM</h2>";
+    $html .= "<p><strong>Student:</strong> " . htmlspecialchars($student['firstname'] . ' ' . $student['lastname'], ENT_QUOTES) . " (Adm: " . htmlspecialchars($student['admno'], ENT_QUOTES) . ")</p>";
+    $html .= "<p><strong>Class:</strong> " . htmlspecialchars($class_name, ENT_QUOTES) . "</p>";
+    $html .= "<p><strong>Term:</strong> " . htmlspecialchars($term, ENT_QUOTES) . ", <strong>Year:</strong> " . htmlspecialchars($year, ENT_QUOTES) . "</p>";
+    $html .= "<table border='1' cellpadding='5' cellspacing='0' style='width: 100%;'>
+                <tr>
+                    <th>Subject</th>
+                    <th>Score</th>
+                    <th>Performance</th>
+                    <th>Teacher Comments</th>
+                    <th>Subject Rank</th>
+                </tr>";
 
-// HTML for PDF with background colors
-$html = "
-<div style='background: linear-gradient(to bottom right, #e0f7fa, #e8f5e9); padding: 20px; min-height: 100vh;'>
-    $watermark
-    <h1 style='text-align: center; color: blue;'>" . htmlspecialchars($school_name, ENT_QUOTES) . "</h1>
-    <h2 style='text-align: center; color: green;'>STUDENT REPORT FORM</h2>
-    <p><strong>Student:</strong> " . htmlspecialchars($student['firstname'] . ' ' . $student['lastname'], ENT_QUOTES) . " (Adm: " . htmlspecialchars($student['admno'], ENT_QUOTES) . ")</p>
-    <p><strong>Class:</strong> " . htmlspecialchars($class_name, ENT_QUOTES) . "</p>
-    <p><strong>Term:</strong> " . htmlspecialchars($term, ENT_QUOTES) . ", <strong>Year:</strong> " . htmlspecialchars($year, ENT_QUOTES) . "</p>
-    <table border='1' cellpadding='5' cellspacing='0' style='width: 100%; background-color: white;'>
-        <tr>
-            <th>Subject</th>
-            <th>Score</th>
-            <th>Performance</th>
-            <th>Teacher Comments</th>
-            <th>Subject Rank</th>
-        </tr>";
+    foreach ($studentScores as $row) {
+        $subjectId = $row['subject_id'];
+        $rankInfo = $subjectRanks[$subjectId] ?? ['rank' => '-', 'total' => '-'];
+        $html .= "<tr>
+                    <td>" . htmlspecialchars($row['subject_name'], ENT_QUOTES) . "</td>
+                    <td>" . htmlspecialchars($row['Score'], ENT_QUOTES) . "</td>
+                    <td>" . htmlspecialchars($row['performance'], ENT_QUOTES) . "</td>
+                    <td>" . htmlspecialchars($row['tcomments'], ENT_QUOTES) . "</td>
+                    <td>{$rankInfo['rank']}/{$rankInfo['total']}</td>
+                  </tr>";
+    }
 
-foreach ($studentScores as $row) {
-    $subjectId = $row['subject_id'];
-    $rankInfo = $subjectRanks[$subjectId] ?? ['rank' => '-', 'total' => '-'];
-    $html .= "<tr>
-                <td>" . htmlspecialchars($row['subject_name'], ENT_QUOTES) . "</td>
-                <td>" . htmlspecialchars($row['Score'], ENT_QUOTES) . "</td>
-                <td>" . htmlspecialchars($row['performance'], ENT_QUOTES) . "</td>
-                <td>" . htmlspecialchars($row['tcomments'], ENT_QUOTES) . "</td>
-                <td>{$rankInfo['rank']}/{$rankInfo['total']}</td>
-              </tr>";
-}
+    $html .= "</table>";
+    $html .= "<h3>Class Position: {$studentClassRank} out of {$classCount}</h3>";
+    $html .= "<h3>School Position: {$studentSchoolRank} out of {$schoolCount}</h3>";
+     $html .= "<br>";
+    $html .= "<h3>Teacher's Comment:<br> {$overallComment}</h3>";
+    $html .= "<br>";
 
-$html .= "</table>
-    <h3>Class Position: {$studentClassRank} out of {$classCount}</h3>
-    <h3>School Position: {$studentSchoolRank} out of {$schoolCount}</h3>
-    <br>
-    <h3>Teacher's Comment:<br> {$overallComment}</h3>
-    <br>
-    <h3>Grading System</h3>
-    <table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; width: 100%; background-color: white;'>
-        <thead>
-            <tr style='background-color: #f2f2f2;'>
-                <th>Performance</th>
-                <th>Meaning</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr><td>M.E</td><td>Meeting Expectation</td></tr>
-            <tr><td>A.E</td><td>Approaching Expectation</td></tr>
-            <tr><td>B.E</td><td>Below Expectation</td></tr>
-            <tr><td>E.E</td><td>Exceeding Expectation</td></tr>
-        </tbody>
-    </table>
-    <div style='position: absolute; bottom: 1in; width: 100%; display: flex; justify-content: space-between;'>
-        <p>Teacher's Name___________________________________Signature_______________________________</p>
-        <p>Principal's Name__________________________________Signature_______________________________ </p>
-    </div>
-</div>";
+                // Grading system table
+                $html .= '
+                <h3>Grading System & Performance Comments</h3>
+                <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+                    <thead>
+                        <tr style="background-color: #f2f2f2;">
+                            <th>Performance</th>
+                            <th>Meaning</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>M.E</td>
+                            <td>Meeting Expectation</td>
+                        </tr>
+                        <tr>
+                            <td>A.E</td>
+                            <td>Approaching Expectation</td>
+                        </tr>
+                        <tr>
+                            <td>B.E</td>
+                            <td>Below Expectation</td>
+                        </tr>
+                        <tr>
+                            <td>E.E</td>
+                            <td>Exceeding Expectation</td>
+                        </tr>
+                    </tbody>
+                </table>';
 
+   // Pull per-exam average for this student across all time, ordered oldest->newest
+    $histSql = "
+        SELECT DATE(sc.created_at) AS exam_date,
+               sc.term,
+               COALESCE(sc.exam_type, 'Exam') AS exam_type,
+               ROUND(AVG(sc.Score), 2) AS avg_score
+        FROM score sc
+        WHERE sc.std_id = ? AND sc.school_id = ?
+        GROUP BY DATE(sc.created_at), sc.term, sc.exam_type
+        ORDER BY exam_date ASC
+    ";
+    $histStmt = $conn->prepare($histSql);
+    if (!$histStmt) {
+        die('Prepare failed (history query): ' . $conn->error);
+    }
+    $histStmt->bind_param('ii', $student_id, $school_id);
+    $histStmt->execute();
+    $histRes = $histStmt->get_result();
+    $histStmt->close();
+
+    $exams = [];
+    while ($h = $histRes->fetch_assoc()) {
+        $exams[] = $h; // [exam_date, term, exam_type, avg_score]
+    }
+
+    if (count($exams) >= 1) {
+        // Compute VAP = last_avg - first_avg
+        $firstAvg = floatval($exams[0]['avg_score']);
+        $lastAvg  = floatval($exams[count($exams)-1]['avg_score']);
+        $vap      = $lastAvg - $firstAvg;
+
+        $vapText = 'No change from the first exam.';
+        if ($vap > 0)  $vapText = 'Improving by +' . number_format($vap, 2) . ' points (vs first exam).';
+        if ($vap < 0)  $vapText = 'Declining by ' . number_format(abs($vap), 2) . ' points (vs first exam).';
+
+        // Build a simple inline SVG line chart (Dompdf-safe)
+        // Chart area
+        $svgW = 700;    // width
+        $svgH = 260;    // height
+        $padL = 50;     // left padding for y-axis labels
+        $padR = 10;
+        $padT = 20;
+        $padB = 40;
+
+        $plotW = $svgW - $padL - $padR;
+        $plotH = $svgH - $padT - $padB;
+
+        // X positions: equally spaced by exam index
+        $n = count($exams);
+        $xStep = ($n > 1) ? ($plotW / ($n - 1)) : 0;
+
+        // Y scale from min/max avg scores with a small margin
+        $scores = array_map(function($e){ return floatval($e['avg_score']); }, $exams);
+        $minS = min($scores);
+        $maxS = max($scores);
+        if ($minS === $maxS) { $minS = max(0, $minS - 5); $maxS = $maxS + 5; }
+        $minS = floor($minS);
+        $maxS = ceil($maxS);
+
+        // Helper to scale Y (higher score -> higher on chart)
+        $scaleY = function($val) use ($minS, $maxS, $padT, $plotH) {
+            if ($maxS == $minS) return $padT + $plotH/2;
+            $t = ($val - $minS) / ($maxS - $minS);  // 0..1
+            // invert because SVG y grows downward
+            return $padT + (1 - $t) * $plotH;
+        };
+
+        // Build polyline points string and ticks/labels
+        $poly = '';
+        $circles = '';
+        $xLabels = '';
+        for ($i = 0; $i < $n; $i++) {
+            $x = $padL + ($n > 1 ? $i * $xStep : $plotW/2);
+            $y = $scaleY($scores[$i]);
+            $poly   .= ($i ? ' ' : '') . $x . ',' . $y;
+            $circles .= '<circle cx="'. $x .'" cy="'. $y .'" r="3" />';
+            // Use short label: index & year (or date)
+            $label = htmlspecialchars(substr($exams[$i]['exam_date'], 0, 10) . ' (' . $exams[$i]['term'] . ', ' . $exams[$i]['exam_type'] . ')', ENT_QUOTES);
+            $xLabels .= '<text x="'. $x .'" y="'. ($svgH - 15) .'" font-size="10" text-anchor="middle" transform="rotate(0 '. $x .' '. ($svgH - 15) .')">'. $label .'</text>';
+        }
+
+        // Y-axis ticks (every 10 between minS and maxS, at least 3 ticks)
+        $ticks = [];
+        $range = max(10, ($maxS - $minS));
+        $step  = ($range <= 30) ? 10 : 20;
+        $ytick = ceil($minS / $step) * $step;
+        while ($ytick <= $maxS) {
+            $ticks[] = $ytick;
+            $ytick += $step;
+        }
+        if (count($ticks) < 3) {
+            $ticks = [$minS, ($minS+$maxS)/2, $maxS];
+        }
+
+        $yGrid = '';
+        $yLabels = '';
+        foreach ($ticks as $t) {
+            $yy = $scaleY($t);
+            $yGrid   .= '<line x1="'. $padL .'" y1="'. $yy .'" x2="'. ($svgW - $padR) .'" y2="'. $yy .'" stroke="#ddd" stroke-width="1" />';
+            $yLabels .= '<text x="'. ($padL - 8) .'" y="'. ($yy + 4) .'" font-size="10" text-anchor="end">'. htmlspecialchars((string)$t, ENT_QUOTES) .'</text>';
+        }
+
+        // Compose SVG
+        $svg = '
+        <svg width="'. $svgW .'" height="'. $svgH .'" xmlns="http://www.w3.org/2000/svg">
+            <rect x="0" y="0" width="'. $svgW .'" height="'. $svgH .'" fill="#ffffff" />
+            <!-- Axes -->
+            <line x1="'. $padL .'" y1="'. $padT .'" x2="'. $padL .'" y2="'. ($svgH - $padB) .'" stroke="#000" stroke-width="1"/>
+            <line x1="'. $padL .'" y1="'. ($svgH - $padB) .'" x2="'. ($svgW - $padR) .'" y2="'. ($svgH - $padB) .'" stroke="#000" stroke-width="1"/>
+            <!-- Grid & Y labels -->
+            '. $yGrid .'
+            '. $yLabels .'
+            <!-- X labels -->
+            '. $xLabels .'
+            <!-- Line -->
+            <polyline fill="none" stroke="#0077cc" stroke-width="2" points="'. $poly .'" />
+            '. $circles .'
+            <!-- Titles -->
+            <text x="'. ($svgW/2) .'" y="14" font-size="14" text-anchor="middle">Performance Trend (Average Score per Exam)</text>
+            <text x="'. ($svgW/2) .'" y="'. ($svgH - 4) .'" font-size="11" text-anchor="middle">Exams (date • term • type)</text>
+            <text x="10" y="14" font-size="11">Scores</text>
+        </svg>';
+
+        $html .= '<br><h3>Performance Trend & VAP (Average Score)</h3>';
+        $html .= '<p><strong>VAP:</strong> ' . htmlspecialchars($vapText, ENT_QUOTES) . '</p>';
+
+        // Embed SVG directly (Dompdf supports inline SVG)
+        $html .= $svg;
+
+        // Also show a compact table of the exam averages
+        $html .= '<br><table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; width:100%;">';
+        $html .= '<thead><tr style="background-color:#f2f2f2;"><th>#</th><th>Date</th><th>Term</th><th>Exam Type</th><th>Avg Score</th></tr></thead><tbody>';
+        foreach ($exams as $idx => $e) {
+            $html .= '<tr>';
+            $html .= '<td>'. ($idx+1) .'</td>';
+            $html .= '<td>'. htmlspecialchars($e['exam_date'], ENT_QUOTES) .'</td>';
+            $html .= '<td>'. htmlspecialchars($e['term'], ENT_QUOTES) .'</td>';
+            $html .= '<td>'. htmlspecialchars($e['exam_type'], ENT_QUOTES) .'</td>';
+            $html .= '<td>'. htmlspecialchars(number_format((float)$e['avg_score'], 2), ENT_QUOTES) .'</td>';
+            $html .= '</tr>';
+        }
+        $html .= '</tbody></table>';
+    } else {
+        // No history beyond current report’s scores
+        $html .= '<br><h3>Performance Trend & VAP (Average Score)</h3>';
+        $html .= '<p>No prior exam history found for this student to plot a trend or compute VAP.</p>';
+    }
+
+
+
+
+    $html .= '<div style="position: absolute; bottom: 1in; width: 100%; display: flex; justify-content: space-between;">
+                <p>Teacher\'s Name___________________________________Signature_______________________________</p>
+                <p>Principal\'s Name__________________________________Signature_______________________________ </p>
+              </div>';
 
     // PDF generation
     $options = new Options();

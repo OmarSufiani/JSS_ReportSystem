@@ -4,16 +4,24 @@ include 'db.php';
 
 $error = '';
 $success = '';
+$schools = [];
+
+// Fetch schools for dropdown
+$school_query = $conn->query("SELECT id, school_name FROM school ORDER BY school_name ASC");
+while ($row = $school_query->fetch_assoc()) {
+    $schools[] = $row;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = $conn->real_escape_string(trim($_POST['email']));
     $firstName = $conn->real_escape_string(trim($_POST['firstName']));
     $lastName = $conn->real_escape_string(trim($_POST['lastName']));
+    $school_id = (int) $_POST['school_id'];
     $password = $_POST['password'];
     $confirm = $_POST['confirm'];
-    $role = 'user'; // default role
+    $role = 'user';
 
-    if (empty($email) || empty($firstName) || empty($lastName) || empty($password) || empty($confirm)) {
+    if (empty($email) || empty($firstName) || empty($lastName) || empty($password) || empty($confirm) || empty($school_id)) {
         $error = "All fields are required.";
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = "Invalid email format.";
@@ -29,8 +37,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = "Email is already registered.";
         } else {
             $hashed = password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $conn->prepare("INSERT INTO users (email, firstName, lastName, password, role) VALUES (?, ?, ?, ?, ?)");
-            $stmt->bind_param("sssss", $email, $firstName, $lastName, $hashed, $role);
+            $stmt = $conn->prepare("INSERT INTO users (email, firstName, lastName, password, role, school_id) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("sssssi", $email, $firstName, $lastName, $hashed, $role, $school_id);
 
             if ($stmt->execute()) {
                 $success = "Registration successful!";
@@ -78,6 +86,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         <div class="mb-3">
                             <input type="text" name="lastName" class="form-control" placeholder="Last Name" required>
+                        </div>
+                        <div class="mb-3">
+                            <select name="school_id" class="form-select" required>
+                                <option value="">-- Select School --</option>
+                                <?php foreach ($schools as $school): ?>
+                                    <option value="<?= $school['id'] ?>"><?= htmlspecialchars($school['school_name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
                         <div class="mb-3">
                             <input type="password" name="password" class="form-control" placeholder="Password" required>

@@ -9,14 +9,33 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $uploadDir = 'uploads/';
-$files = scandir($uploadDir);
+
+// Recursive function to get all files inside a directory and its subdirectories
+function getFiles($dir) {
+    $files = [];
+    $items = scandir($dir);
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') continue;
+        $path = $dir . DIRECTORY_SEPARATOR . $item;
+        if (is_dir($path)) {
+            // Recursively get files from subdirectories
+            $files = array_merge($files, getFiles($path));
+        } else {
+            $files[] = $path;
+        }
+    }
+    return $files;
+}
+
+$files = getFiles($uploadDir);
 ?>
 
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Admin Dashboard - File Manager</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Dashboard - Ramzy School System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"> 
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light">
 
@@ -31,7 +50,7 @@ $files = scandir($uploadDir);
 
   <h3 class="mb-3">Uploaded Files</h3>
 
-  <?php if (count($files) <= 2): ?>
+  <?php if (count($files) === 0): ?>
     <div class="alert alert-info">No files uploaded yet.</div>
   <?php else: ?>
     <div class="table-responsive">
@@ -48,23 +67,26 @@ $files = scandir($uploadDir);
         <tbody>
         <?php
         $i = 1;
-        foreach ($files as $file) {
-          if ($file === '.' || $file === '..') continue;
-          $filePath = $uploadDir . $file;
-          $fileSize = round(filesize($filePath) / 1024, 2);
-          echo "<tr>
-                  <td>{$i}</td>
-                  <td>{$file}</td>
-                  <td>{$fileSize}</td>
-                  <td><a class='btn btn-sm btn-outline-primary' href='{$filePath}' download>Download</a></td>
-                  <td>
-                    <form action='delete.php' method='get' onsubmit=\"return confirm('Are you sure you want to delete this file?');\">
-                      <input type='hidden' name='file' value='" . htmlspecialchars($file, ENT_QUOTES) . "'>
-                      <button type='submit' class='btn btn-sm btn-danger'>Delete</button>
-                    </form>
-                  </td>
-                </tr>";
-          $i++;
+        foreach ($files as $filePath) {
+            // Display relative path from uploads folder for nicer UI
+            $relativePath = substr($filePath, strlen($uploadDir));
+            $fileName = basename($filePath);
+            $fileSize = round(filesize($filePath) / 1024, 2);
+            $downloadLink = $filePath; // relative path to the file
+            
+            echo "<tr>
+                    <td>{$i}</td>
+                    <td>" . htmlspecialchars($relativePath) . "</td>
+                    <td>{$fileSize}</td>
+                    <td><a class='btn btn-sm btn-outline-primary' href='{$downloadLink}' download>Download</a></td>
+                    <td>
+                      <form action='delete.php' method='get' onsubmit=\"return confirm('Are you sure you want to delete this file?');\">
+                        <input type='hidden' name='file' value='" . htmlspecialchars($relativePath, ENT_QUOTES) . "'>
+                        <button type='submit' class='btn btn-sm btn-danger'>Delete</button>
+                      </form>
+                    </td>
+                  </tr>";
+            $i++;
         }
         ?>
         </tbody>

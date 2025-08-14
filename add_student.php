@@ -7,88 +7,166 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $name = $_POST['name'];
-    $admno = $_POST['admno'];
-    $class_id = $_POST['class_id'];
+$error = $success = '';
 
-    $sql = "INSERT INTO student (name, admno, class_id) VALUES ('$name', '$admno', '$class_id')";
-    if (mysqli_query($conn, $sql)) {
-        $_SESSION['success'] = "✅ Student added successfully!";
-    } else {
-        $_SESSION['error'] = "❌ Error adding student.";
+// Fetch school and class options
+$schools = $conn->query("SELECT id, school_name FROM school ORDER BY school_name");
+$classes = $conn->query("SELECT id, name FROM class ORDER BY name");
+
+// Handle form submit
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+    // Sanitize and collect form data
+    $firstname = $conn->real_escape_string(trim($_POST['firstname']));
+    $lastname = $conn->real_escape_string(trim($_POST['lastname']));
+    $gender = $_POST['gender'];
+    $dob = $_POST['dob'];
+    $guardian_name = $conn->real_escape_string(trim($_POST['guardian_name']));
+    $guardian_phone = $conn->real_escape_string(trim($_POST['guardian_phone']));
+    $address = $conn->real_escape_string(trim($_POST['address']));
+    $status = $_POST['status'];
+    $admno = $conn->real_escape_string(trim($_POST['admno']));
+    $school_id = (int) $_POST['school_id'];
+    $class_id = (int) $_POST['class_id'];
+
+    // Handle photo upload
+    $photo_path = '';
+    $targetDir = "uploads/students/";
+    if (!empty($_FILES['photo']['name'])) {
+        $fileName = time() . '_' . basename($_FILES["photo"]["name"]);
+        $targetFilePath = $targetDir . $fileName;
+
+        // Validate file type
+        $fileType = strtolower(pathinfo($targetFilePath, PATHINFO_EXTENSION));
+        $allowedTypes = ['jpg', 'jpeg', 'png', 'gif'];
+
+        if (in_array($fileType, $allowedTypes)) {
+            if (!file_exists($targetDir)) {
+                mkdir($targetDir, 0777, true);
+            }
+            if (move_uploaded_file($_FILES["photo"]["tmp_name"], $targetFilePath)) {
+                $photo_path = $targetFilePath;
+            } else {
+                $error = "Failed to upload photo.";
+            }
+        } else {
+            $error = "Only JPG, JPEG, PNG, and GIF files are allowed.";
+        }
     }
 
-    // Redirect to avoid resubmission
-    header("Location: add_student.php");
-    exit();
+    // Insert only if no upload error
+    if (empty($error)) {
+        $stmt = $conn->prepare("INSERT INTO student (firstname, lastname, gender, dob, guardian_name, guardian_phone, address, status, photo, admno, school_id, class_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("ssssssssssii", $firstname, $lastname, $gender, $dob, $guardian_name, $guardian_phone, $address, $status, $photo_path, $admno, $school_id, $class_id);
+
+        if ($stmt->execute()) {
+            $success = "Student added successfully.";
+        } else {
+            $error = "Database error: " . $stmt->error;
+        }
+
+        $stmt->close();
+    }
+
+    $conn->close();
 }
-
-$success = $_SESSION['success'] ?? '';
-$error = $_SESSION['error'] ?? '';
-unset($_SESSION['success'], $_SESSION['error']);
-
-$classes = mysqli_query($conn, "SELECT * FROM class");
 ?>
 
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
     <title>Add Student</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light">
-
 <div class="container mt-5">
-    <div class="card shadow-sm">
+    <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+            <h4>Add Student</h4>
+        </div>
         <div class="card-body">
-
-            <a href="dashboard.php" class="btn btn-sm btn-outline-primary mb-3">&larr; Back to Dashboard</a>
-
-            <h4 class="mb-4">Add New Student</h4>
-
-            <?php if ($success): ?>
-                <div id="msg" class="alert alert-success"><?= $success ?></div>
-            <?php elseif ($error): ?>
-                <div id="msg" class="alert alert-danger"><?= $error ?></div>
+            <?php if ($error): ?>
+                <div class="alert alert-danger"><?= $error ?></div>
+            <?php elseif ($success): ?>
+                <div class="alert alert-success"><?= $success ?></div>
             <?php endif; ?>
 
-            <form method="POST" class="d-grid gap-3">
-                <div>
-                    <label for="name" class="form-label">Student Name</label>
-                    <input type="text" name="name" id="name" class="form-control" placeholder="Enter student name" required>
+            <form method="POST" enctype="multipart/form-data">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <input type="text" name="firstname" class="form-control" placeholder="First Name" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <input type="text" name="lastname" class="form-control" placeholder="Last Name" required>
+                    </div>
                 </div>
 
-                <div>
-                    <label for="admno" class="form-label">Admission Number</label>
-                    <input type="number" name="admno" id="admno" class="form-control" placeholder="Enter admission number" required>
-                </div>
-
-                <div>
-                    <label for="class_id" class="form-label">Select Class</label>
-                    <select name="class_id" id="class_id" class="form-select" required>
-                        <option value="">-- Choose Class --</option>
-                        <?php while($row = mysqli_fetch_assoc($classes)) { ?>
-                            <option value="<?= $row['id'] ?>"><?= $row['name'] ?></option>
-                        <?php } ?>
+                <div class="mb-3">
+                    <select name="gender" class="form-select" required>
+                        <option value="">-- Select Gender --</option>
+                        <option>Male</option>
+                        <option>Female</option>
+                        <option>Other</option>
                     </select>
+                </div>
+
+                <div class="mb-3">
+                    <label>Date of Birth:</label>
+                    <input type="date" name="dob" class="form-control" required>
+                </div>
+
+                <div class="mb-3">
+                    <input type="text" name="guardian_name" class="form-control" placeholder="Guardian Name" required>
+                </div>
+
+                <div class="mb-3">
+                    <input type="text" name="guardian_phone" class="form-control" placeholder="Guardian Phone" required>
+                </div>
+
+                <div class="mb-3">
+                    <textarea name="address" class="form-control" placeholder="Address" required></textarea>
+                </div>
+
+                <div class="mb-3">
+                    <select name="status" class="form-select" required>
+                        <option value="">-- Select Status --</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="transferred">Transferred</option>
+                        <option value="graduated">Graduated</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <input type="text" name="admno" class="form-control" placeholder="Admission Number" required>
+                </div>
+
+                <div class="mb-3">
+                    <select name="school_id" class="form-select" required>
+                        <option value="">-- Select School --</option>
+                        <?php while($row = $schools->fetch_assoc()): ?>
+                            <option value="<?= $row['id'] ?>"><?= htmlspecialchars($row['school_name']) ?></option>
+                        <?php endwhile; ?>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <select name="class_id" class="form-select" required>
+                        <option value="">-- Select Class --</option>
+                        <?php while($row = $classes->fetch_assoc()): ?>
+                            <option value="<?= $row['id'] ?>"><?= htmlspecialchars($row['name']) ?></option>
+                        <?php endwhile; ?>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label>Upload Photo:</label>
+                    <input type="file" name="photo" class="form-control" accept="image/*">
                 </div>
 
                 <button type="submit" class="btn btn-success">Add Student</button>
             </form>
-
         </div>
     </div>
 </div>
-
-<!-- Auto-hide alerts after 3 seconds -->
-<script>
-    setTimeout(() => {
-        const msg = document.getElementById('msg');
-        if (msg) msg.style.display = 'none';
-    }, 3000);
-</script>
-
 </body>
 </html>

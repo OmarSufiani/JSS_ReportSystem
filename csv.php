@@ -15,10 +15,10 @@ unset($_SESSION['error']);
 ?>
 
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
     <title>Student Score Lookup</title>
+    <!-- ✅ Bootstrap 5 CDN -->
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
@@ -51,13 +51,15 @@ unset($_SESSION['error']);
 document.addEventListener("DOMContentLoaded", function () {
     const searchInput = document.getElementById("searchInput");
     const resultsContainer = document.getElementById("resultsContainer");
+    let currentPage = 1;
 
-    function fetchResults(query = '') {
+    function fetchResults(query = '', page = 1) {
         const xhr = new XMLHttpRequest();
-        xhr.open("GET", "fetch_results.php?q=" + encodeURIComponent(query), true);
+        xhr.open("GET", `fetch_results.php?q=${encodeURIComponent(query)}&page=${page}`, true);
         xhr.onload = function () {
             if (xhr.status === 200) {
                 resultsContainer.innerHTML = xhr.responseText;
+                currentPage = page;
             }
         };
         xhr.send();
@@ -69,8 +71,14 @@ document.addEventListener("DOMContentLoaded", function () {
     // Live search event
     searchInput.addEventListener("keyup", function () {
         const query = searchInput.value.trim();
-        fetchResults(query);
+        fetchResults(query, 1);  // reset to page 1 on new search
     });
+
+    // Expose function to window so pagination buttons can call it
+    window.changePage = function(page) {
+        const query = searchInput.value.trim();
+        fetchResults(query, page);
+    };
 });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
