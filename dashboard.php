@@ -35,21 +35,33 @@ if (!isset($_SESSION['user_id'])) {
         <div class="card-body text-center">
             <!-- Small Bootstrap Back Button -->
             <div class="text-start mb-3">
-                <a href="logout.php" class="btn btn-outline-primary btn-sm">
-                    &larr; Logout
-                </a>
+                            <div class="d-flex justify-content-end mb-3">
+                    <a href="logout.php" class="btn btn-outline-primary btn-sm">
+                        &larr; Logout
+                    </a>
+                </div>
+
             </div>
 
             <h2 class="mb-4">📘 School Dashboard</h2>
+        
+
+                <!-- Show logged-in user -->
+                <p class="text-muted mb-4">
+                    Logged in as: <strong>
+                        <?= htmlspecialchars($_SESSION['FirstName'] . ' ' . $_SESSION['LastName']) ?>
+                    </strong> 
+                    (Role: <?= htmlspecialchars($_SESSION['role']) ?>)
+                </p>
+
+                <br>
+
             <div class="d-grid gap-3">
             <?php if ($_SESSION['role'] === 'Superadmin'): ?>
-                    <a class="btn btn-primary" href="add_student.php">➕ Add Student</a>
-                    <a class="btn btn-primary" href="add_teacher.php">➕ Add Teacher</a>
-                    <a class="btn btn-primary" href="add_subject.php">➕ Add Subject</a>
-                    <a class="btn btn-primary" href="add_class.php">➕ Add Class</a>
-                    <a class="btn btn-primary" href="add_user.php">➕ Add User</a>
-                    <a class="btn btn-primary" href="tsubject_class.php">➕ Teacher Subject/Class</a>
-                    <a class="btn btn-primary" href="delete_student.php">➕ Delete Users</a>
+                    <a class="btn btn-primary" href="add_school.php">➕ Add School</a>
+                    <a class="btn btn-primary" href="manage_users.php">➕ Manage_users</a>
+                    <a class="btn btn-primary" href="delete_student.php">➕ Update Student </a>
+                    <a class="btn btn-primary" href="delete_scores.php">➕ Delete_scores </a>
                       <a class="btn btn-primary" href="file.php">➕ All files</a>
 
                 <?php endif; ?>
@@ -61,22 +73,31 @@ if (!isset($_SESSION['user_id'])) {
                     <a class="btn btn-primary" href="add_teacher.php">➕ Add Teacher</a>
                     <a class="btn btn-primary" href="add_subject.php">➕ Add Subject</a>
                     <a class="btn btn-primary" href="add_class.php">➕ Add Class</a>
-                    <a class="btn btn-primary" href="add_user.php">➕ Add User</a>
                     <a class="btn btn-primary" href="tsubject_class.php">➕ Teacher Subject/Class</a>
-                    <a class="btn btn-primary" href="delete_student.php">➕ Delete Users</a>
-                      <a class="btn btn-primary" href="file.php">➕ All files</a>
+                      <a class="btn btn-primary" href="student_subject.php">📚 Add Student_Subject_Class</a>
+                    <a class="btn btn-primary" href="delete_student.php">➕ Update Student </a>
+                     <a class="btn btn-primary" href="delete_scores.php">➕ Delete_scores </a>
+                    <a class="btn btn-primary" href="file.php">➕ All files</a>
+                     <a class="btn btn-primary" href="csv.php">📊 View Report</a>
+                     <a class="btn btn-primary" href="manage_users.php">➕ Manage_users</a>
 
                 <?php endif; ?>
 
-                <!-- These buttons are visible to all users -->
-                <a class="btn btn-primary" href="add_score.php">➕ Add Score</a>
+                                <!-- These buttons are visible to all users -->
+                <?php if (isset($_SESSION['role']) && ($_SESSION['role'] === 'admin' || $_SESSION['role'] === 'user')): ?>
+                <a class="btn btn-primary mb-3" href="add_score.php">➕ Add Score</a>
+             <!-- <a class="btn btn-primary mb-3" href="edit_score.php">➕ Edit Score</a>-->
                 <a class="btn btn-primary" href="upload.php">➕ Upload</a>
-                <a class="btn btn-primary" href="csv.php">📊 View Report</a>
+                
+              
                 <a class="btn btn-primary" href="report_form.php">📄 Download Report Form</a>
-                <a class="btn btn-primary" href="student_subject.php">📚 Add Student Subject</a>
-
-                <!-- Settings visible to all -->
                 <a class="btn btn-secondary" href="update_user.php">⚙️ Settings</a>
+                <?php endif; ?>
+                <!-- Settings visible to all -->
+
+                
+                
+              
             </div>
         </div>
     </div>

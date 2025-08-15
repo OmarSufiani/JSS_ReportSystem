@@ -12,28 +12,36 @@ $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $teacher_id = $_POST['teacher_id'];
-    $subject_id = $_POST['subject_id'];
-    $class_id = $_POST['class_id'];
+    $subjects = $_POST['subject_ids'] ?? [];
+    $classes = $_POST['class_ids'] ?? [];
 
-    // Optional: prevent duplicate assignment
-    $check = mysqli_query($conn, "SELECT * FROM tsubject_class WHERE teacher_id = $teacher_id AND subject_id = $subject_id AND class_id = $class_id AND school_id = $school_id");
-    if (mysqli_num_rows($check) > 0) {
-        $success = '<div class="alert alert-warning text-center">⚠️ This assignment already exists.</div>';
-    } else {
-        // Insert with school_id
-        $stmt = $conn->prepare("INSERT INTO tsubject_class (teacher_id, subject_id, class_id, school_id) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("iiii", $teacher_id, $subject_id, $class_id, $school_id);
-
-        if ($stmt->execute()) {
-            $success = '<div class="alert alert-success text-center">✅ Assigned teacher to subject and class!</div>';
-        } else {
-            $success = '<div class="alert alert-danger text-center">❌ Error assigning teacher.</div>';
+    if (!empty($subjects) && !empty($classes)) {
+        $inserted = 0;
+        foreach ($subjects as $subject_id) {
+            foreach ($classes as $class_id) {
+                // Prevent duplicate
+                $check = mysqli_query($conn, "SELECT 1 FROM tsubject_class 
+                    WHERE teacher_id = $teacher_id 
+                      AND subject_id = $subject_id 
+                      AND class_id = $class_id 
+                      AND school_id = $school_id");
+                if (mysqli_num_rows($check) == 0) {
+                    $stmt = $conn->prepare("INSERT INTO tsubject_class (teacher_id, subject_id, class_id, school_id) VALUES (?, ?, ?, ?)");
+                    $stmt->bind_param("iiii", $teacher_id, $subject_id, $class_id, $school_id);
+                    if ($stmt->execute()) {
+                        $inserted++;
+                    }
+                    $stmt->close();
+                }
+            }
         }
-        $stmt->close();
+        $success = "<div class='alert alert-success text-center'>✅ Assigned {$inserted} new records!</div>";
+    } else {
+        $success = "<div class='alert alert-warning text-center'>⚠️ Please select at least one subject and one class.</div>";
     }
 }
 
-// Fetch filtered data by school
+// Fetch data
 $teachers = mysqli_query($conn, "SELECT id AS teacher_id, user_id, name FROM teacher WHERE school_id = $school_id ORDER BY name ASC");
 $subjects = mysqli_query($conn, "SELECT id, name FROM subject WHERE school_id = $school_id");
 $classes = mysqli_query($conn, "SELECT id, name FROM class WHERE school_id = $school_id");
@@ -52,7 +60,7 @@ $classes = mysqli_query($conn, "SELECT id, name FROM class WHERE school_id = $sc
     <a href="dashboard.php" class="btn btn-sm btn-outline-primary mb-4">&larr; Back to Dashboard</a>
 
     <div class="card shadow p-4">
-        <h4 class="mb-4 text-center">Assign Teacher to Subject and Class</h4>
+        <h4 class="mb-4 text-center">Assign Teacher to Multiple Subjects & Classes</h4>
 
         <?= $success ?>
 
@@ -70,23 +78,23 @@ $classes = mysqli_query($conn, "SELECT id, name FROM class WHERE school_id = $sc
             </div>
 
             <div class="mb-3">
-                <label class="form-label">Subject</label>
-                <select name="subject_id" class="form-select" required>
-                    <option value="">Select Subject</option>
-                    <?php while ($s = mysqli_fetch_assoc($subjects)) { ?>
-                        <option value="<?= $s['id'] ?>"><?= htmlspecialchars($s['name']) ?></option>
-                    <?php } ?>
-                </select>
+                <label class="form-label">Subjects</label><br>
+                <?php while ($s = mysqli_fetch_assoc($subjects)) { ?>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" name="subject_ids[]" value="<?= $s['id'] ?>" id="subject<?= $s['id'] ?>">
+                        <label class="form-check-label" for="subject<?= $s['id'] ?>"><?= htmlspecialchars($s['name']) ?></label>
+                    </div>
+                <?php } ?>
             </div>
 
             <div class="mb-3">
-                <label class="form-label">Class</label>
-                <select name="class_id" class="form-select" required>
-                    <option value="">Select Class</option>
-                    <?php while ($c = mysqli_fetch_assoc($classes)) { ?>
-                        <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
-                    <?php } ?>
-                </select>
+                <label class="form-label">Classes</label><br>
+                <?php while ($c = mysqli_fetch_assoc($classes)) { ?>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" name="class_ids[]" value="<?= $c['id'] ?>" id="class<?= $c['id'] ?>">
+                        <label class="form-check-label" for="class<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></label>
+                    </div>
+                <?php } ?>
             </div>
 
             <div class="text-center">

@@ -8,6 +8,10 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+// Example: role comes from session after login
+// Possible values: 'superadmin', 'admin', 'user'
+$userRole = $_SESSION['role'] ?? 'user';
+
 $uploadDir = 'uploads/';
 
 // Recursive function to get all files inside a directory and its subdirectories
@@ -18,7 +22,6 @@ function getFiles($dir) {
         if ($item === '.' || $item === '..') continue;
         $path = $dir . DIRECTORY_SEPARATOR . $item;
         if (is_dir($path)) {
-            // Recursively get files from subdirectories
             $files = array_merge($files, getFiles($path));
         } else {
             $files[] = $path;
@@ -61,31 +64,36 @@ $files = getFiles($uploadDir);
             <th>File Name</th>
             <th>Size (KB)</th>
             <th>Download</th>
-            <th>Delete</th>
+            <?php if ($userRole === 'Superadmin'): ?>
+              <th>Delete</th>
+            <?php endif; ?>
           </tr>
         </thead>
         <tbody>
         <?php
         $i = 1;
         foreach ($files as $filePath) {
-            // Display relative path from uploads folder for nicer UI
             $relativePath = substr($filePath, strlen($uploadDir));
-            $fileName = basename($filePath);
             $fileSize = round(filesize($filePath) / 1024, 2);
-            $downloadLink = $filePath; // relative path to the file
-            
+            $downloadLink = $filePath;
+
             echo "<tr>
                     <td>{$i}</td>
                     <td>" . htmlspecialchars($relativePath) . "</td>
                     <td>{$fileSize}</td>
-                    <td><a class='btn btn-sm btn-outline-primary' href='{$downloadLink}' download>Download</a></td>
-                    <td>
-                      <form action='delete.php' method='get' onsubmit=\"return confirm('Are you sure you want to delete this file?');\">
-                        <input type='hidden' name='file' value='" . htmlspecialchars($relativePath, ENT_QUOTES) . "'>
-                        <button type='submit' class='btn btn-sm btn-danger'>Delete</button>
-                      </form>
-                    </td>
-                  </tr>";
+                    <td><a class='btn btn-sm btn-outline-primary' href='{$downloadLink}' download>Download</a></td>";
+
+            // Show delete button only if superadmin
+            if ($userRole === 'Superadmin') {
+                echo "<td>
+                        <form action='delete.php' method='get' onsubmit=\"return confirm('Are you sure you want to delete this file?');\">
+                          <input type='hidden' name='file' value='" . htmlspecialchars($relativePath, ENT_QUOTES) . "'>
+                          <button type='submit' class='btn btn-sm btn-danger'>Delete</button>
+                        </form>
+                      </td>";
+            }
+
+            echo "</tr>";
             $i++;
         }
         ?>

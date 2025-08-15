@@ -2,55 +2,107 @@
 session_start();
 include 'db.php';
 
+if (!isset($_SESSION['user_id']) || !isset($_SESSION['school_id'])) {
+    header('Location: login.php');
+    exit();
+}
+
+$school_id = $_SESSION['school_id'];
 $success = '';
 $error = '';
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 try {
-    // Fetch all schools
-    $schools = mysqli_query($conn, "SELECT id, school_name FROM school");
+    // Fetch students for this school
+    $students = mysqli_query($conn,
+        "SELECT id, firstname, lastname, admno FROM student WHERE school_id = $school_id"
+    );
+
+    // Fetch subjects for this school
+    $subjects = mysqli_query($conn,
+        "SELECT id, name FROM subject WHERE school_id = $school_id"
+    );
+
+    // Fetch classes for this school
+    $classes = mysqli_query($conn,
+        "SELECT id, name FROM class WHERE school_id = $school_id ORDER BY name"
+    );
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST'
-        && isset($_POST['school_id'], $_POST['student_id'], $_POST['subject_id'])) {
+        && isset($_POST['student_id'], $_POST['subject_ids'], $_POST['class_id'])) {
         
-        $school_id = intval($_POST['school_id']);
         $student_id = intval($_POST['student_id']);
-        $subject_id = intval($_POST['subject_id']);
+        $class_id = intval($_POST['class_id']);
+        $selected_subjects = $_POST['subject_ids'];
+        $assigned_count = 0;
+        $skipped_count = 0;
 
-        $sql = "INSERT INTO student_subject (student_id, school_id, subject_id) VALUES (?, ?, ?)";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("iii", $student_id, $school_id, $subject_id);
-        $stmt->execute();
+        foreach ($selected_subjects as $subject_id) {
+            $subject_id = intval($subject_id);
 
-        $success = "✅ Subject assigned to student successfully!";
-        $stmt->close();
+            // Check if assignment already exists for this class
+            $check = $conn->prepare("SELECT id FROM student_subject WHERE student_id=? AND subject_id=? AND class_id=? AND school_id=?");
+            $check->bind_param("iiii", $student_id, $subject_id, $class_id, $school_id);
+            $check->execute();
+            $check->store_result();
+
+            if ($check->num_rows > 0) {
+                $skipped_count++;
+            } else {
+                $sql = "INSERT INTO student_subject (student_id, school_id, subject_id, class_id) VALUES (?, ?, ?, ?)";
+                $stmt = $conn->prepare($sql);
+                $stmt->bind_param("iiii", $student_id, $school_id, $subject_id, $class_id);
+                $stmt->execute();
+                $stmt->close();
+                $assigned_count++;
+            }
+            $check->close();
+        }
+
+        if ($assigned_count > 0) {
+            $success = "✅ Assigned $assigned_count subject(s) successfully.";
+        }
+        if ($skipped_count > 0) {
+            $error .= " ⚠ $skipped_count subject(s) were already assigned to this class.";
+        }
+
+        $_SESSION['message'] = trim($success . ' ' . $error);
+        header("Location: " . $_SERVER['PHP_SELF']);
+        exit();
     }
+
 } catch (mysqli_sql_exception $e) {
-    $error = "❌ Error: " . htmlspecialchars($e->getMessage());
+    $_SESSION['message'] = "❌ Error: " . htmlspecialchars($e->getMessage());
+    header("Location: " . $_SERVER['PHP_SELF']);
+    exit();
 }
 
-$selected_school_id = isset($_POST['school_id']) ? intval($_POST['school_id']) : null;
-
-$students = [];
-$subjects = [];
-if ($selected_school_id) {
-    $students = mysqli_query($conn,
-        "SELECT id, firstname, lastname, admno FROM student WHERE school_id = $selected_school_id"
-    );
-    $subjects = mysqli_query($conn,
-        "SELECT id, name FROM subject WHERE school_id = $selected_school_id"
-    );
+// Show message from session
+if (isset($_SESSION['message'])) {
+    $message = $_SESSION['message'];
+    unset($_SESSION['message']);
+} else {
+    $message = '';
 }
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF‑8" />
-  <meta name="viewport" content="width=device‑width, initial-scale=1" />
-  <title>Assign Subject to Student</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Assign Subjects to Student</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script>
+      document.addEventListener("DOMContentLoaded", function () {
+          const alertBox = document.getElementById("message-box");
+          if (alertBox) {
+              setTimeout(() => alertBox.style.opacity = "0", 2500);
+              setTimeout(() => alertBox.remove(), 3000);
+          }
+      });
+  </script>
 </head>
 <body class="bg-light">
 
@@ -59,55 +111,53 @@ if ($selected_school_id) {
   
   <div class="card shadow-sm">
     <div class="card-body">
-      <h4 class="mb-4 text-primary">Assign Subject to Student</h4>
-      
-      <?php if ($success): ?>
-        <div class="alert alert-success"><?= $success ?></div>
-      <?php elseif ($error): ?>
-        <div class="alert alert-danger"><?= $error ?></div>
+      <h4 class="mb-4 text-primary">Assign Subjects to Student</h4>
+
+      <?php if ($message): ?>
+        <div id="message-box" class="alert <?= str_starts_with($message, '✅') ? 'alert-success' : 'alert-warning' ?>">
+            <?= htmlspecialchars($message) ?>
+        </div>
       <?php endif; ?>
       
       <form method="POST">
-        <!-- School Dropdown -->
+        <!-- Student Dropdown -->
         <div class="mb-3">
-          <label for="school_id" class="form-label">School</label>
-          <select id="school_id" name="school_id" class="form-select" required onchange="this.form.submit()">
-            <option value="">Select School</option>
-            <?php while ($s = mysqli_fetch_assoc($schools)): ?>
-              <option value="<?= $s['id'] ?>" <?= $selected_school_id === intval($s['id']) ? 'selected' : '' ?>>
-                <?= htmlspecialchars($s['school_name']) ?>
+          <label for="student_id" class="form-label">Student</label>
+          <select id="student_id" name="student_id" class="form-select" required>
+            <option value="">Select Student</option>
+            <?php mysqli_data_seek($students, 0); while ($row = mysqli_fetch_assoc($students)): ?>
+              <option value="<?= $row['id'] ?>">
+                <?= htmlspecialchars("{$row['firstname']} {$row['lastname']} (Adm: {$row['admno']})") ?>
               </option>
             <?php endwhile; ?>
           </select>
         </div>
+
+        <!-- Class Dropdown -->
+        <div class="mb-3">
+          <label for="class_id" class="form-label">Class</label>
+          <select id="class_id" name="class_id" class="form-select" required>
+            <option value="">Select Class</option>
+            <?php mysqli_data_seek($classes, 0); while ($cls = mysqli_fetch_assoc($classes)): ?>
+              <option value="<?= $cls['id'] ?>"><?= htmlspecialchars($cls['name']) ?></option>
+            <?php endwhile; ?>
+          </select>
+        </div>
+
+        <!-- Subject Checkboxes -->
+        <div class="mb-3">
+          <label class="form-label">Select Subjects</label><br>
+          <?php mysqli_data_seek($subjects, 0); while ($sub = mysqli_fetch_assoc($subjects)): ?>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="subject_ids[]" value="<?= $sub['id'] ?>" id="sub<?= $sub['id'] ?>">
+              <label class="form-check-label" for="sub<?= $sub['id'] ?>">
+                <?= htmlspecialchars($sub['name']) ?>
+              </label>
+            </div>
+          <?php endwhile; ?>
+        </div>
         
-        <?php if ($selected_school_id): ?>
-          <!-- Student Dropdown -->
-          <div class="mb-3">
-            <label for="student_id" class="form-label">Student</label>
-            <select id="student_id" name="student_id" class="form-select" required>
-              <option value="">Select Student</option>
-              <?php while ($row = mysqli_fetch_assoc($students)): ?>
-                <option value="<?= $row['id'] ?>">
-                  <?= htmlspecialchars("{$row['firstname']} {$row['lastname']} (Adm: {$row['admno']})") ?>
-                </option>
-              <?php endwhile; ?>
-            </select>
-          </div>
-          
-          <!-- Subject Dropdown -->
-          <div class="mb-3">
-            <label for="subject_id" class="form-label">Subject</label>
-            <select id="subject_id" name="subject_id" class="form-select" required>
-              <option value="">Select Subject</option>
-              <?php while ($sub = mysqli_fetch_assoc($subjects)): ?>
-                <option value="<?= $sub['id'] ?>"><?= htmlspecialchars($sub['name']) ?></option>
-              <?php endwhile; ?>
-            </select>
-          </div>
-          
-          <button type="submit" class="btn btn-success w-100">Assign Subject</button>
-        <?php endif; ?>
+        <button type="submit" class="btn btn-success w-100">Assign Selected Subjects</button>
       </form>
       
     </div>

@@ -8,12 +8,16 @@ require_once 'vendor/autoload.php';
 use Dompdf\Dompdf;
 use Dompdf\Options;
 
-function generateStudentReport($student_id, $term, $year, $conn) {
-    // Fetch student info
-    $stu_q = $conn->prepare("SELECT id, firstname, lastname, admno, class_id, school_id FROM student WHERE id = ?");
-    if (!$stu_q) {
-        die("Prepare failed (student query): " . $conn->error);
-    }
+function generateStudentReport($student_id, $term, $exam_type, $year, $conn) {
+    // Fetch student info and class via student_subject
+    $stu_q = $conn->prepare("
+        SELECT s.id, s.firstname, s.lastname, s.admno, ss.class_id, ss.school_id
+        FROM student_subject ss
+        JOIN student s ON s.id = ss.student_id
+        WHERE s.id = ?
+        LIMIT 1
+    ");
+    if (!$stu_q) die("Prepare failed (student query): " . $conn->error);
     $stu_q->bind_param("i", $student_id);
     $stu_q->execute();
     $stu_q->bind_result($id, $firstname, $lastname, $admno, $class_id, $school_id);
@@ -33,14 +37,13 @@ function generateStudentReport($student_id, $term, $year, $conn) {
     ];
 
     // Get class and school name
-    // NOTE: school column is 'school_name' per your DB dump
-    $class_q = $conn->prepare("SELECT c.name AS class_name, sch.school_name AS school_name 
-                               FROM class c 
-                               JOIN school sch ON c.school_id = sch.id
-                               WHERE c.id = ?");
-    if (!$class_q) {
-        die("Prepare failed (class query): " . $conn->error);
-    }
+    $class_q = $conn->prepare("
+        SELECT c.name AS class_name, sch.school_name AS school_name 
+        FROM class c 
+        JOIN school sch ON c.school_id = sch.id
+        WHERE c.id = ?
+    ");
+    if (!$class_q) die("Prepare failed (class query): " . $conn->error);
     $class_q->bind_param("i", $class_id);
     $class_q->execute();
     $class = $class_q->get_result()->fetch_assoc();
@@ -49,17 +52,20 @@ function generateStudentReport($student_id, $term, $year, $conn) {
     $class_name = $class['class_name'] ?? 'Unknown';
     $school_name = $class['school_name'] ?? 'Unknown School';
 
-    // Get scores
+    // Extract stream number (e.g., "8" from "8B") for ranking
+    preg_match('/\d+/', $class_name, $matches);
+    $stream_number = $matches[0] ?? null;
+
+    // Get student scores for term, exam_type, year
     $sql = "
         SELECT s.id AS subject_id, s.name AS subject_name, sc.Score, sc.performance, sc.tcomments
         FROM score AS sc
         JOIN subject AS s ON sc.subject_id = s.id
-        WHERE sc.std_id = ? AND sc.term = ? AND YEAR(sc.created_at) = ? AND sc.school_id = ?";
+        WHERE sc.std_id = ? AND sc.term = ? AND sc.exam_type = ? AND YEAR(sc.created_at) = ? AND sc.school_id = ?
+    ";
     $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        die("Prepare failed (scores query): " . $conn->error);
-    }
-    $stmt->bind_param("isii", $student_id, $term, $year, $school_id);
+    if (!$stmt) die("Prepare failed (scores query): " . $conn->error);
+    $stmt->bind_param("issii", $student_id, $term, $exam_type, $year, $school_id);
     $stmt->execute();
     $scores = $stmt->get_result();
     $stmt->close();
@@ -71,50 +77,49 @@ function generateStudentReport($student_id, $term, $year, $conn) {
         $studentScores[] = $row;
     }
 
-    // Count total students in class
-    $stmtCount = $conn->prepare("SELECT COUNT(*) AS cnt FROM student WHERE class_id = ?");
-    if (!$stmtCount) {
-        die("Prepare failed (count students query): " . $conn->error);
-    }
-    $stmtCount->bind_param("i", $class_id);
+    // Count total students in the stream
+    $stmtCount = $conn->prepare("
+        SELECT COUNT(DISTINCT s.id) AS cnt
+        FROM student s
+        JOIN student_subject ss ON s.id = ss.student_id
+        JOIN class c ON ss.class_id = c.id
+        WHERE c.name LIKE CONCAT(?, '%') AND ss.school_id = ?
+    ");
+    $stmtCount->bind_param("si", $stream_number, $school_id);
     $stmtCount->execute();
     $countResult = $stmtCount->get_result()->fetch_assoc();
     $stmtCount->close();
     $totalStudents = $countResult['cnt'] ?? 0;
 
-    // Subject Ranks
+    // Subject ranks within stream
     $subjectRanks = [];
     foreach ($studentScores as $scoreEntry) {
         $subject_id = $scoreEntry['subject_id'];
-
         $rankSql = "
-            SELECT std_id, Score FROM score
-            WHERE subject_id = ? AND term = ? AND YEAR(created_at) = ? 
-            AND std_id IN (SELECT id FROM student WHERE class_id = ?) AND school_id = ?
-            ORDER BY Score DESC";
+            SELECT sc.std_id, sc.Score 
+            FROM score sc
+            JOIN student_subject ss ON sc.std_id = ss.student_id
+            JOIN class c ON ss.class_id = c.id
+            WHERE sc.subject_id = ? AND sc.term = ? AND sc.exam_type = ? AND YEAR(sc.created_at) = ? 
+              AND c.name LIKE CONCAT(?, '%') AND sc.school_id = ?
+            ORDER BY sc.Score DESC
+        ";
         $rankStmt = $conn->prepare($rankSql);
-        if (!$rankStmt) {
-            die("Prepare failed (rank query): " . $conn->error);
-        }
-        $rankStmt->bind_param("isiii", $subject_id, $term, $year, $class_id, $school_id);
+        if (!$rankStmt) die("Prepare failed (rank query): " . $conn->error);
+        $rankStmt->bind_param("issisi", $subject_id, $term, $exam_type, $year, $stream_number, $school_id);
         $rankStmt->execute();
         $rankResult = $rankStmt->get_result();
         $rankStmt->close();
 
         $rank = 1;
         $prevScore = null;
-               $studentRank = null;
+        $studentRank = null;
         $count = 0;
 
         while ($r = $rankResult->fetch_assoc()) {
             $count++;
-            if ($prevScore !== null && $r['Score'] < $prevScore) {
-                $rank = $count;
-            }
-            if ($r['std_id'] == $student_id) {
-                $studentRank = $rank;
-                break;
-            }
+            if ($prevScore !== null && $r['Score'] < $prevScore) $rank = $count;
+            if ($r['std_id'] == $student_id) $studentRank = $rank;
             $prevScore = $r['Score'];
         }
 
@@ -125,82 +130,71 @@ function generateStudentReport($student_id, $term, $year, $conn) {
     }
 
     // Average score
-    $avgScoreSql = "SELECT AVG(Score) as avgScore FROM score WHERE std_id = ? AND term = ? AND YEAR(created_at) = ? AND school_id = ?";
+    $avgScoreSql = "SELECT AVG(Score) as avgScore FROM score WHERE std_id = ? AND term = ? AND exam_type = ? AND YEAR(created_at) = ? AND school_id = ?";
     $avgStmt = $conn->prepare($avgScoreSql);
-    if (!$avgStmt) {
-        die("Prepare failed (avg score query): " . $conn->error);
-    }
-    $avgStmt->bind_param("isii", $student_id, $term, $year, $school_id);
+    $avgStmt->bind_param("issii", $student_id, $term, $exam_type, $year, $school_id);
     $avgStmt->execute();
     $avgResult = $avgStmt->get_result()->fetch_assoc();
     $avgStmt->close();
     $studentAvg = floatval($avgResult['avgScore'] ?? 0);
 
-    // Class ranking
+// --- CLASS RANK ---
+$classAvgSql = "
+    SELECT sc.std_id, AVG(sc.Score) as avgScore 
+    FROM score sc
+    JOIN student_subject ss ON sc.std_id = ss.student_id
+    WHERE ss.class_id = ? AND sc.term = ? AND sc.exam_type = ? AND YEAR(sc.created_at) = ? AND sc.school_id = ?
+    GROUP BY sc.std_id
+    ORDER BY avgScore DESC
+";
+$classAvgStmt = $conn->prepare($classAvgSql);
+$classAvgStmt->bind_param("issii", $class_id, $term, $exam_type, $year, $school_id);
+$classAvgStmt->execute();
+$classAvgResult = $classAvgStmt->get_result();
+$classAvgStmt->close();
+
+$studentClassRank = null;
+$rankPos = 1;
+$prevAvg = null;
+$countClass = 0;
+
+while ($row = $classAvgResult->fetch_assoc()) {
+    $countClass++;
+    if ($prevAvg !== null && floatval($row['avgScore']) < $prevAvg) $rankPos = $countClass;
+    if ($row['std_id'] == $student_id) $studentClassRank = $rankPos;
+    $prevAvg = floatval($row['avgScore']);
+}
+if ($studentClassRank === null) $studentClassRank = $countClass;
+
+    // Stream ranking
     $classAvgSql = "
-        SELECT std_id, AVG(Score) as avgScore FROM score 
-        WHERE term = ? AND YEAR(created_at) = ? AND std_id IN (SELECT id FROM student WHERE class_id = ?)
-        AND school_id = ?
-        GROUP BY std_id
-        ORDER BY avgScore DESC";
+        SELECT sc.std_id, AVG(sc.Score) as avgScore 
+        FROM score sc
+        JOIN student_subject ss ON sc.std_id = ss.student_id
+        JOIN class c ON ss.class_id = c.id
+        WHERE sc.term = ? AND sc.exam_type = ? AND YEAR(sc.created_at) = ? 
+          AND c.name LIKE CONCAT(?, '%') AND sc.school_id = ?
+        GROUP BY sc.std_id
+        ORDER BY avgScore DESC
+    ";
     $classAvgStmt = $conn->prepare($classAvgSql);
-    if (!$classAvgStmt) {
-        die("Prepare failed (class rank query): " . $conn->error);
-    }
-    $classAvgStmt->bind_param("siii", $term, $year, $class_id, $school_id);
+    $classAvgStmt->bind_param("ssisi", $term, $exam_type, $year, $stream_number, $school_id);
     $classAvgStmt->execute();
     $classAvgResult = $classAvgStmt->get_result();
     $classAvgStmt->close();
 
-    $studentClassRank = null;
-    $classRank = 1;
-    $prevClassAvg = null;
-    $classCount = 0;
+    $studentStreamRank = null;
+    $rankPos = 1;
+    $prevAvg = null;
+    $count = 0;
 
     while ($row = $classAvgResult->fetch_assoc()) {
-        $classCount++;
-        if ($prevClassAvg !== null && floatval($row['avgScore']) < $prevClassAvg) {
-            $classRank = $classCount;
-        }
-        if ($row['std_id'] == $student_id) {
-            $studentClassRank = $classRank;
-        }
-        $prevClassAvg = floatval($row['avgScore']);
+        $count++;
+        if ($prevAvg !== null && floatval($row['avgScore']) < $prevAvg) $rankPos = $count;
+        if ($row['std_id'] == $student_id) $studentStreamRank = $rankPos;
+        $prevAvg = floatval($row['avgScore']);
     }
-    if ($studentClassRank === null) $studentClassRank = $classCount;
-
-    // School ranking
-    $schoolAvgSql = "
-        SELECT std_id, AVG(Score) as avgScore FROM score 
-        WHERE term = ? AND YEAR(created_at) = ? 
-        AND std_id IN (SELECT id FROM student WHERE school_id = ?)
-        GROUP BY std_id
-        ORDER BY avgScore DESC";
-    $schoolAvgStmt = $conn->prepare($schoolAvgSql);
-    if (!$schoolAvgStmt) {
-        die("Prepare failed (school rank query): " . $conn->error);
-    }
-    $schoolAvgStmt->bind_param("sii", $term, $year, $school_id);
-    $schoolAvgStmt->execute();
-    $schoolAvgResult = $schoolAvgStmt->get_result();
-    $schoolAvgStmt->close();
-
-    $studentSchoolRank = null;
-    $schoolRank = 1;
-    $prevSchoolAvg = null;
-    $schoolCount = 0;
-
-    while ($row = $schoolAvgResult->fetch_assoc()) {
-        $schoolCount++;
-        if ($prevSchoolAvg !== null && floatval($row['avgScore']) < $prevSchoolAvg) {
-            $schoolRank = $schoolCount;
-        }
-        if ($row['std_id'] == $student_id) {
-            $studentSchoolRank = $schoolRank;
-        }
-        $prevSchoolAvg = floatval($row['avgScore']);
-    }
-    if ($studentSchoolRank === null) $studentSchoolRank = $schoolCount;
+    if ($studentStreamRank === null) $studentStreamRank = $count;
 
     // Comments
     if ($studentAvg >= 70) $overallComment = "Excellent";
@@ -208,79 +202,83 @@ function generateStudentReport($student_id, $term, $year, $conn) {
     elseif ($studentAvg >= 50) $overallComment = "Average";
     else $overallComment = "Put more effort";
 
-  // HTML for PDF with blue-green background
-// Watermark text style
-$watermark = "<div style='
-    position: fixed;
-    top: 40%;
-    left: 20%;
-    width: 60%;
-    text-align: center;
-    opacity: 0.08;
-    font-size: 100px;
-    color: gray;
-    transform: rotate(-30deg);
-    z-index: -1;
-'>
-    " . htmlspecialchars($school_name, ENT_QUOTES) . "
-</div>";
+    // Watermark
+    $watermark = "<div style='position: fixed; top: 40%; left: 20%; width: 60%; text-align: center; opacity: 0.08; font-size: 100px; color: gray; transform: rotate(-30deg); z-index: -1;'>" . htmlspecialchars($school_name, ENT_QUOTES) . "</div>";
 
-// HTML for PDF with background colors
-$html = "
-<div style='background: linear-gradient(to bottom right, #e0f7fa, #e8f5e9); padding: 20px; min-height: 100vh;'>
-    $watermark
-    <h1 style='text-align: center; color: blue;'>" . htmlspecialchars($school_name, ENT_QUOTES) . "</h1>
-    <h2 style='text-align: center; color: green;'>STUDENT REPORT FORM</h2>
-    <p><strong>Student:</strong> " . htmlspecialchars($student['firstname'] . ' ' . $student['lastname'], ENT_QUOTES) . " (Adm: " . htmlspecialchars($student['admno'], ENT_QUOTES) . ")</p>
-    <p><strong>Class:</strong> " . htmlspecialchars($class_name, ENT_QUOTES) . "</p>
-    <p><strong>Term:</strong> " . htmlspecialchars($term, ENT_QUOTES) . ", <strong>Year:</strong> " . htmlspecialchars($year, ENT_QUOTES) . "</p>
-    <table border='1' cellpadding='5' cellspacing='0' style='width: 100%; background-color: white;'>
-        <tr>
-            <th>Subject</th>
-            <th>Score</th>
-            <th>Performance</th>
-            <th>Teacher Comments</th>
-            <th>Subject Rank</th>
-        </tr>";
-
-foreach ($studentScores as $row) {
-    $subjectId = $row['subject_id'];
-    $rankInfo = $subjectRanks[$subjectId] ?? ['rank' => '-', 'total' => '-'];
-    $html .= "<tr>
-                <td>" . htmlspecialchars($row['subject_name'], ENT_QUOTES) . "</td>
-                <td>" . htmlspecialchars($row['Score'], ENT_QUOTES) . "</td>
-                <td>" . htmlspecialchars($row['performance'], ENT_QUOTES) . "</td>
-                <td>" . htmlspecialchars($row['tcomments'], ENT_QUOTES) . "</td>
-                <td>{$rankInfo['rank']}/{$rankInfo['total']}</td>
-              </tr>";
-}
-
-$html .= "</table>
-    <h3>Class Position: {$studentClassRank} out of {$classCount}</h3>
-    <h3>School Position: {$studentSchoolRank} out of {$schoolCount}</h3>
-    <br>
-    <h3>Teacher's Comment:<br> {$overallComment}</h3>
-    <br>
-    <h3>Grading System</h3>
-    <table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; width: 100%; background-color: white;'>
-        <thead>
-            <tr style='background-color: #f2f2f2;'>
+    // HTML for PDF
+    $html = "
+    <div style='background: linear-gradient(to bottom right, #e0f7fa, #e8f5e9); padding: 20px; min-height: 100vh;'>
+        $watermark
+        <h1 style='text-align: center; color: blue;'>" . htmlspecialchars($school_name, ENT_QUOTES) . "</h1>
+        <h2 style='text-align: center; color: green;'>STUDENT REPORT FORM</h2>
+        <p><strong>Student:</strong> " . htmlspecialchars($student['firstname'] . ' ' . $student['lastname'], ENT_QUOTES) . " (Adm: " . htmlspecialchars($student['admno'], ENT_QUOTES) . ")</p>
+        <p><strong>Class:</strong> " . htmlspecialchars($class_name, ENT_QUOTES) . "</p>
+        <p><strong>Term:</strong> " . htmlspecialchars($term, ENT_QUOTES) . ", <strong>Exam Type:</strong> " . htmlspecialchars($exam_type, ENT_QUOTES) . ", <strong>Year:</strong> " . htmlspecialchars($year, ENT_QUOTES) . "</p>
+        <table border='1' cellpadding='5' cellspacing='0' style='width: 100%; background-color: white;'>
+            <tr>
+                <th>Subject</th>
+                <th>Score</th>
                 <th>Performance</th>
-                <th>Meaning</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr><td>M.E</td><td>Meeting Expectation</td></tr>
-            <tr><td>A.E</td><td>Approaching Expectation</td></tr>
-            <tr><td>B.E</td><td>Below Expectation</td></tr>
-            <tr><td>E.E</td><td>Exceeding Expectation</td></tr>
-        </tbody>
-    </table>
-    <div style='position: absolute; bottom: 1in; width: 100%; display: flex; justify-content: space-between;'>
-        <p>Teacher's Name___________________________________Signature_______________________________</p>
-        <p>Principal's Name__________________________________Signature_______________________________ </p>
-    </div>
-</div>";
+                <th>Teacher Comments</th>
+                <th>Subject Rank</th>
+            </tr>";
+    foreach ($studentScores as $row) {
+        $subjectId = $row['subject_id'];
+        $rankInfo = $subjectRanks[$subjectId] ?? ['rank' => '-', 'total' => '-'];
+        $html .= "<tr>
+                    <td>" . htmlspecialchars($row['subject_name'], ENT_QUOTES) . "</td>
+                    <td>" . htmlspecialchars($row['Score'], ENT_QUOTES) . "</td>
+                    <td>" . htmlspecialchars($row['performance'], ENT_QUOTES) . "</td>
+                    <td>" . htmlspecialchars($row['tcomments'], ENT_QUOTES) . "</td>
+                    <td>{$rankInfo['rank']}/{$rankInfo['total']}</td>
+                  </tr>";
+    }
+    $html .= "</table>
+        <h3>Class Position: {$studentClassRank} out of {$count}</h3>
+        
+         <h3>Stream Position: {$studentStreamRank} out of {$count}</h3>
+         <br>
+        <h3>Teacher's Comment:<br> {$overallComment}</h3>
+    </div>";
+
+                // Grading system table
+                $html .= '
+                <h3>Grading System & Performance Comments</h3>
+                <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+                    <thead>
+                        <tr style="background-color: #f2f2f2;">
+                            <th>Performance</th>
+                            <th>Meaning</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>M.E</td>
+                            <td>Meeting Expectation</td>
+                        </tr>
+                        <tr>
+                            <td>A.E</td>
+                            <td>Approaching Expectation</td>
+                        </tr>
+                        <tr>
+                            <td>B.E</td>
+                            <td>Below Expectation</td>
+                        </tr>
+                        <tr>
+                            <td>E.E</td>
+                            <td>Exceeding Expectation</td>
+                        </tr>
+                    </tbody>
+                </table>';
+
+                // Add Teacher and Principal signature section
+$html .= '
+<div style="margin-top: 40px; width: 100%; font-family: Arial, sans-serif;">
+    <p>Principal Name ..................................................Signature......................................................</p>  <br>
+    <p>Teachers  Name ..................................................Signature......................................................</p> 
+</div>';
+
+
 
 
     // PDF generation
@@ -293,7 +291,7 @@ $html .= "</table>
     $dompdf->setPaper('A4', 'portrait');
     $dompdf->render();
 
-    $filename = sys_get_temp_dir() . "/report_{$student_id}_{$term}_{$year}.pdf";
+    $filename = sys_get_temp_dir() . "/report_{$student_id}_{$term}_{$exam_type}_{$year}.pdf";
     file_put_contents($filename, $dompdf->output());
 
     return $filename;
@@ -304,26 +302,17 @@ $currentYear = date('Y');
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && (isset($_GET['id']) || isset($_GET['class_id']))) {
     $term = $_GET['term'] ?? 'Term 1';
+    $exam_type = $_GET['exam_type'] ?? 'Midterm';
     $year = intval($_GET['year'] ?? $currentYear);
 
     if (isset($_GET['id']) && $_GET['id'] !== "") {
         $student_id = intval($_GET['id']);
-        $filename = generateStudentReport($student_id, $term, $year, $conn);
-
-        if (!$filename || !file_exists($filename)) {
-            die("No scores found for the selected student, term, and year.");
-        }
-
+        $filename = generateStudentReport($student_id, $term, $exam_type, $year, $conn);
+        if (!$filename || !file_exists($filename)) die("No scores found for the selected student, term, and year.");
         if (ob_get_level()) ob_end_clean();
-
         header('Content-Type: application/pdf');
         header('Content-Disposition: attachment; filename="' . basename($filename) . '"');
         header('Content-Length: ' . filesize($filename));
-        header('Pragma: public');
-        header('Expires: 0');
-        header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
-        header('Cache-Control: private', false);
-
         readfile($filename);
         unlink($filename);
         exit;
@@ -331,62 +320,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && (isset($_GET['id']) || isset($_GET['
 
     if (isset($_GET['class_id']) && $_GET['class_id'] !== "") {
         $class_id = intval($_GET['class_id']);
-        $stmt = $conn->prepare("SELECT id FROM student WHERE class_id = ?");
-        if (!$stmt) {
-            die("Prepare failed (class students query): " . $conn->error);
-        }
+        $stmt = $conn->prepare("SELECT s.id FROM student_subject ss JOIN student s ON ss.student_id = s.id WHERE ss.class_id = ?");
         $stmt->bind_param("i", $class_id);
         $stmt->execute();
         $students = $stmt->get_result();
         $stmt->close();
 
-        if (!class_exists('ZipArchive')) {
-            die('ZipArchive PHP extension is not enabled.');
-        }
-
+        if (!class_exists('ZipArchive')) die('ZipArchive PHP extension is not enabled.');
         $zip = new ZipArchive();
-        $zipFilename = sys_get_temp_dir() . DIRECTORY_SEPARATOR . "Class_{$class_id}_Reports_{$term}_{$year}.zip";
-
-        if ($zip->open($zipFilename, ZipArchive::CREATE) !== true) {
-            die("Cannot create ZIP file.");
-        }
+        $zipFilename = sys_get_temp_dir() . DIRECTORY_SEPARATOR . "Class_{$class_id}_Reports_{$term}_{$exam_type}_{$year}.zip";
+        if ($zip->open($zipFilename, ZipArchive::CREATE) !== true) die("Cannot create ZIP file.");
 
         $reportsGenerated = 0;
         $generatedFiles = [];
-
         while ($stu = $students->fetch_assoc()) {
-            $filename = generateStudentReport($stu['id'], $term, $year, $conn);
+            $filename = generateStudentReport($stu['id'], $term, $exam_type, $year, $conn);
             if ($filename && file_exists($filename)) {
                 $zip->addFile($filename, basename($filename));
                 $generatedFiles[] = $filename;
                 $reportsGenerated++;
             }
         }
-
         $zip->close();
 
         if ($reportsGenerated === 0) {
             if (file_exists($zipFilename)) unlink($zipFilename);
-            die("No scores found for any students in the selected class, term, and year.");
+            die("No scores found for any students in the selected class, term, and exam type.");
         }
 
         if (ob_get_level()) ob_end_clean();
-
         header('Content-Type: application/zip');
         header('Content-Disposition: attachment; filename="' . basename($zipFilename) . '"');
         header('Content-Length: ' . filesize($zipFilename));
-        header('Pragma: public');
-        header('Expires: 0');
-        header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
-        header('Cache-Control: private', false);
-
         flush();
         readfile($zipFilename);
         unlink($zipFilename);
-
-        foreach ($generatedFiles as $file) {
-            if (file_exists($file)) unlink($file);
-        }
+        foreach ($generatedFiles as $file) if (file_exists($file)) unlink($file);
         exit;
     }
 }
+?>
